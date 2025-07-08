@@ -1,205 +1,134 @@
 import { App } from "vue";
-import axios, { AxiosResponse } from "axios";
+import axios, { AxiosInstance, AxiosResponse } from "axios";
 import VueAxios from "vue-axios";
 import JwtService from "./JwtService";
 import UserService from "./UserService";
-// import { addDebugDate } from "../../core/services/CustomFunctions";
-import Swal from "sweetalert2";
-import i18n from "../plugins/i18n";
-
-const addDebugDate = (name = "", data: unknown): boolean => {
-  const debugMode = import.meta.env.VITE_APP_DEBUG_MODE;
-  if (debugMode == "1") {
-    console.log(name, data);
-  }
-  return true;
-};
+import { addDebugDate } from "../../core/services/CustomFunctions";
+import { AxiosRequestConfig } from "axios";
+import router from "@/router/index";
 
 /**
- * @description service to call HTTP request via Axios
+ * @description service to call HTTP requests via Axios using async/await
  */
 class ApiService {
-  /**
-   * @description property to share vue instance
-   */
-  public static vueInstance: App;
+  // private static vueInstance: App;
+  private static axiosInstance: AxiosInstance;
 
   /**
-   * @description initialize vue axios
+   * @description initialize VueAxios and set baseURL
    */
   public static init(app: App<Element>) {
-    ApiService.vueInstance = app;
-    ApiService.vueInstance.use(VueAxios, axios);
-    ApiService.vueInstance.axios.defaults.baseURL =
-      import.meta.env.VITE_APP_API_URL;
+    // ApiService.vueInstance = app;
+
+    // Use global axios instance for plugin registration
+    app.use(VueAxios, axios);
+
+    // Create a custom axios instance for ApiService use
+    ApiService.axiosInstance = axios.create({
+      baseURL: import.meta.env.VITE_APP_API_URL,
+    });
+
+    // Optional: Global response interceptor for 401
+    ApiService.axiosInstance.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        const status = error.response?.status;
+        if (status === 401) {
+          UserService.purgeAuth();
+          // window.location.href = `${window.location.origin}/login`;
+          router.push({ name: "login" });
+        }
+        return Promise.reject(error);
+      }
+    );
   }
 
   /**
-   * @description set the default HTTP request headers
+   * @description Set Authorization header
    */
-  public static setHeader(token = "" as string): void {
-    ApiService.vueInstance.axios.defaults.headers.common[
-      "Authorization"
-    ] = `Bearer ${token !== "" ? token : JwtService.getToken()}`;
-    ApiService.vueInstance.axios.defaults.headers.common["Accept"] =
+  public static setHeader(token: string = JwtService.getToken() || ""): void {
+    ApiService.axiosInstance.defaults.headers.common["Authorization"] =
+      `Bearer ${token}`;
+    ApiService.axiosInstance.defaults.headers.common["Accept"] =
       "application/json";
   }
 
-  /**
-   * @description logoutMessages when respons code 401
-   */
-  public static logOutMessage(
-    status: number | string,
-    title?: string,
-    icon: "error" | "info" | "success" = "error",
-    text?: string
-  ): void {
-    if (status == 401) {
-      const credentials = {
-        name: import.meta.env.VITE_APP_API_LOGIN || "",
-        password: import.meta.env.VITE_APP_API_PASSWORD || "",
-      };
+  public static async get<T = any>(
+    resource: string,
+    config?: AxiosRequestConfig
+  ): Promise<AxiosResponse<T>> {
+    try {
+      const response = await ApiService.axiosInstance.get<T>(resource, config);
+      addDebugDate(`responseGetSUCCESS - ${resource}`, response);
+      return response;
+    } catch (error: any) {
+      addDebugDate(`responseGetFAIL - ${resource}`, error.response);
 
-      UserService.login(credentials).then(() => {
-        window.location.reload();
-      });
-      return;
-    } else {
-      const { t } = i18n.global;
-      Swal.fire({
-        title: title || t("errTextAlert"),
-        text: text || t("errTitleAlertWrong"),
-        icon: icon,
-        toast: true,
-        timer: 7000,
-        timerProgressBar: true,
-        position: "top-end",
-        buttonsStyling: false,
-        customClass: {
-          confirmButton: "invisible_button",
-        },
-      });
+      throw error.response;
     }
   }
 
-  /**
-   * @description send the GET HTTP request
-   * @param resource: string
-   * @param slug: string
-   * @returns Promise<AxiosResponse>
-   */
-  public static get(
-    resource: string,
-    data?: object | string
-  ): Promise<AxiosResponse> {
-    return new Promise((resolve, reject) => {
-      ApiService.vueInstance.axios
-        .get(`${resource}`, { params: data })
-        .then((data) => {
-          addDebugDate(`responseGetSUCCESS - ${resource}`, data);
-          return resolve(data);
-        })
-        .catch(({ response }) => {
-          addDebugDate(`responseGetFAIL - ${resource}`, response);
-          ApiService.logOutMessage(response.status, "error");
-          return reject(response);
-        });
-    });
-  }
-
-  /**
-   * @description set the POST HTTP request
-   * @param resource: string
-   * @param params: object
-   * @returns Promise<AxiosResponse>
-   */
-  public static post(
+  public static async post<T = any>(
     resource: string,
     params: object | string
-  ): Promise<AxiosResponse> {
-    return new Promise((resolve, reject) => {
-      ApiService.vueInstance.axios
-        .post(`${resource}`, params)
-        .then((data) => {
-          addDebugDate(`responsePostSUCCESS - ${resource}`, data);
-          return resolve(data);
-        })
-        .catch((response) => {
-          addDebugDate(`responsePostFAIL - ${resource}`, response);
-          ApiService.logOutMessage(response.status);
-          return reject(response);
-        });
-    });
+  ): Promise<AxiosResponse<T>> {
+    try {
+      const response = await ApiService.axiosInstance.post<T>(resource, params);
+      addDebugDate(`responsePostSUCCESS - ${resource}`, response);
+      return response;
+    } catch (error: any) {
+      addDebugDate(`responsePostFAIL - ${resource}`, error.response);
+
+      throw error.response;
+    }
   }
 
-  /**
-   * @description send the UPDATE HTTP request
-   * @param resource: string
-   * @param slug: string
-   * @param params: object
-   * @returns Promise<AxiosResponse>
-   */
-  public static update(
+  public static async put<T = any>(
+    resource: string,
+    params: object
+  ): Promise<AxiosResponse<T>> {
+    try {
+      const response = await ApiService.axiosInstance.put<T>(resource, params);
+      addDebugDate(`responsePutSUCCESS - ${resource}`, response);
+      return response;
+    } catch (error: any) {
+      addDebugDate(`responsePutFAIL - ${resource}`, error.response);
+
+      throw error.response;
+    }
+  }
+
+  public static async update<T = any>(
     resource: string,
     slug: string,
     params: object
-  ): Promise<AxiosResponse> {
-    return new Promise((resolve, reject) => {
-      ApiService.vueInstance.axios
-        .put(`${resource}/${slug}`, params)
-        .then((data) => {
-          addDebugDate(`responseUpdateSUCCESS - ${resource}`, data);
-          return resolve(data);
-        })
-        .catch(({ response }) => {
-          addDebugDate(`responseUpdateFAIL - ${resource}`, response);
-          ApiService.logOutMessage(response.status);
-          return reject(response);
-        });
-    });
+  ): Promise<AxiosResponse<T>> {
+    try {
+      const response = await ApiService.axiosInstance.put<T>(
+        `${resource}/${slug}`,
+        params
+      );
+      addDebugDate(`responseUpdateSUCCESS - ${resource}`, response);
+      return response;
+    } catch (error: any) {
+      addDebugDate(`responseUpdateFAIL - ${resource}`, error.response);
+
+      throw error.response;
+    }
   }
 
-  /**
-   * @description Send the PUT HTTP request
-   * @param resource: string
-   * @param params: object
-   * @returns Promise<AxiosResponse>
-   */
-  public static put(resource: string, params: object): Promise<AxiosResponse> {
-    return new Promise((resolve, reject) => {
-      ApiService.vueInstance.axios
-        .put(`${resource}`, params)
-        .then((data) => {
-          addDebugDate(`responsePutSUCCESS - ${resource}`, data);
-          return resolve(data);
-        })
-        .catch(({ response }) => {
-          addDebugDate(`responsePutFAIL - ${resource}`, response);
-          ApiService.logOutMessage(response.status);
-          return reject(response);
-        });
-    });
-  }
+  public static async delete<T = any>(
+    resource: string
+  ): Promise<AxiosResponse<T>> {
+    try {
+      const response = await ApiService.axiosInstance.delete<T>(resource);
+      addDebugDate(`responseDeleteSUCCESS - ${resource}`, response);
+      return response;
+    } catch (error: any) {
+      addDebugDate(`responseDeleteFAIL - ${resource}`, error.response);
 
-  /**
-   * @description Send the DELETE HTTP request
-   * @param resource: string
-   * @returns Promise<AxiosResponse>
-   */
-  public static delete(resource: string): Promise<AxiosResponse> {
-    return new Promise((resolve, reject) => {
-      ApiService.vueInstance.axios
-        .delete(resource)
-        .then((data) => {
-          addDebugDate(`responseDeleteSUCCESS - ${resource}`, data);
-          return resolve(data);
-        })
-        .catch(({ response }) => {
-          addDebugDate(`responseDeleteFAIL - ${resource}`, response);
-          ApiService.logOutMessage(response.status);
-          return reject(response);
-        });
-    });
+      throw error.response;
+    }
   }
 }
 
